@@ -112,12 +112,10 @@ async function genWorkout(briefing) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ briefing }),
   });
-
   if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.error || "Erro desconhecido");
+    const err = await resp.json().catch(()=>({error:"Erro desconhecido"}));
+    throw new Error(err.error || "Erro na API");
   }
-
   const data = await resp.json();
   return data.workout;
 }
@@ -127,12 +125,12 @@ function useUsers() {
   const [users,setUsers]=useState(()=>LS.get("fp:users",{}));
   const [curId,setCurId]=useState(()=>LS.get("fp:cur",null));
   const save=(u)=>{setUsers(u);LS.set("fp:users",u);};
-  const register=(name,email,password,username)=>{
+  const register=(name,email,password,username,seedData)=>{
     if(Object.values(users).some(u=>u.email===email))return{error:"Email já cadastrado"};
     if(Object.values(users).some(u=>u.username===username))return{error:"Username já em uso"};
     const id=uid();
-    const u={id,name,email,password,username,createdAt:today(),workout:null,briefing:"",partnerUsername:""};
-    const up={...users,[id]:u};save(up);setCurId(id);LS.set("fp:cur",id);return{ok:true,user:u};
+    const u={id,name,email,password,username,createdAt:today(),workout:null,briefing:"",partnerUsername:"",seedData:seedData||null};
+    const up={...users,[id]:u};save(up);setCurId(id);LS.set("fp:cur",id);return{ok:true,user:u,id};
   };
   const login=(email,password)=>{
     const u=Object.values(users).find(u=>u.email===email&&u.password===password);
@@ -182,15 +180,21 @@ function LoginF({store,setV}) {
 }
 
 function RegF({store,setV}) {
-  const [f,setF]=useState({name:"",email:"",username:"",pw:"",confirm:""});
+  const [f,setF]=useState({name:"",email:"",username:"",pw:"",confirm:"",weight:"",bf:""});
   const [err,setErr]=useState("");
   const up=k=>v=>setF(p=>({...p,[k]:v}));
   const go=()=>{
     if(f.pw!==f.confirm){setErr("Senhas não coincidem");return;}
     if(f.pw.length<6){setErr("Senha: mín. 6 caracteres");return;}
     if(!/^[a-z0-9_]+$/i.test(f.username)){setErr("Username: apenas letras, números e _");return;}
-    const r=store.register(f.name,f.email,f.pw,f.username.toLowerCase());
-    if(r.error)setErr(r.error);
+    const seed=f.weight||f.bf?{weight:f.weight,bf:f.bf}:null;
+    const r=store.register(f.name,f.email,f.pw,f.username.toLowerCase(),seed);
+    if(r.error){setErr(r.error);return;}
+    // Save initial phys entry if weight provided
+    if(seed&&r.id){
+      const entry={date:today(),weight:seed.weight,bf:seed.bf,chest:"",waist:"",hip:"",leftThigh:"",rightThigh:""};
+      LS.set(`fp:${r.id}:ph`,[entry]);
+    }
   };
   return (
     <Card style={{width:"100%",maxWidth:420}} className="an">
@@ -199,6 +203,10 @@ function RegF({store,setV}) {
       <Inp label="Nome completo" value={f.name} onChange={up("name")} placeholder="Seu Nome"/>
       <Inp label="Username (público)" value={f.username} onChange={up("username")} placeholder="ex: joao_silva"/>
       <Inp label="Email" type="email" value={f.email} onChange={up("email")} placeholder="seu@email.com"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Inp label="Peso atual (kg) — opcional" type="number" value={f.weight} onChange={up("weight")} placeholder="ex: 70"/>
+        <Inp label="Gordura % — opcional" type="number" value={f.bf} onChange={up("bf")} placeholder="ex: 16"/>
+      </div>
       <Inp label="Senha" type="password" value={f.pw} onChange={up("pw")} placeholder="mín. 6 caracteres"/>
       <Inp label="Confirmar senha" type="password" value={f.confirm} onChange={up("confirm")} placeholder="repita a senha"/>
       <Btn onClick={go} style={{width:"100%",marginBottom:12}}>Criar conta</Btn>
@@ -289,7 +297,7 @@ function Main({store}) {
         <div style={{fontFamily:"var(--T)",fontSize:28,color:"var(--red)",letterSpacing:2}}>FIT<span style={{color:"var(--text)"}}>PRO</span></div>
         <nav style={{display:"flex",gap:2}}>
           {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} title={t.id} style={{background:tab===t.id?"var(--red)":"transparent",color:tab===t.id?"#fff":"var(--muted)",border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:17,transition:"all .2s"}}>{t.icon}</button>)}
-          <button onClick={logout} title="Sair" style={{background:"transparent",color:"var(--muted)",border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:17}}>🚪</button>
+          <button onClick={logout} title="Sair" style={{background:"transparent",color:"var(--muted)",border:"none",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,fontFamily:"var(--B)",fontWeight:700,letterSpacing:1}}>SAIR</button>
         </nav>
       </header>
       <main style={{padding:"20px 16px",maxWidth:860,margin:"0 auto"}}>
@@ -354,6 +362,121 @@ function Treino({wL,logSet,markDone,activeDay,setActiveDay,myWorkout}) {
   );
 }
 
+// Map exercise names to Wger exercise IDs for GIF lookup
+const EXERCISE_GIFS = {
+  "supino reto":       "https://wger.de/api/v2/exercise/192/",
+  "supino inclinado":  "https://wger.de/api/v2/exercise/193/",
+  "crucifixo":        "https://wger.de/api/v2/exercise/196/",
+  "crossover":        "https://wger.de/api/v2/exercise/196/",
+  "triceps frances":   "https://wger.de/api/v2/exercise/197/",
+  "triceps":          "https://wger.de/api/v2/exercise/197/",
+  "pulldown":         "https://wger.de/api/v2/exercise/199/",
+  "remada":           "https://wger.de/api/v2/exercise/200/",
+  "rosca martelo":    "https://wger.de/api/v2/exercise/201/",
+  "rosca scott":      "https://wger.de/api/v2/exercise/202/",
+  "rosca":            "https://wger.de/api/v2/exercise/203/",
+  "panturrilha":      "https://wger.de/api/v2/exercise/204/",
+  "leg press":        "https://wger.de/api/v2/exercise/205/",
+  "extensora":        "https://wger.de/api/v2/exercise/206/",
+  "goblet":           "https://wger.de/api/v2/exercise/207/",
+  "leg curl":         "https://wger.de/api/v2/exercise/208/",
+  "arnold press":     "https://wger.de/api/v2/exercise/80/",
+  "elevacao lateral": "https://wger.de/api/v2/exercise/79/",
+  "face pull":        "https://wger.de/api/v2/exercise/81/",
+  "prancha":          "https://wger.de/api/v2/exercise/75/",
+  "bird dog":         "https://wger.de/api/v2/exercise/76/",
+  "leg raise":        "https://wger.de/api/v2/exercise/77/",
+};
+
+// Build a Giphy search URL for the exercise
+function gifSearchUrl(name) {
+  const normalized = name.toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g,"")
+    .replace(/c\//g," ")
+    .replace(/[^a-z0-9 ]/g," ")
+    .trim();
+  // Map to known fitness GIF search terms
+  const terms = {
+    "supino reto": "dumbbell bench press",
+    "supino inclinado": "incline dumbbell press",
+    "crucifixo": "dumbbell fly",
+    "crossover": "cable crossover chest",
+    "triceps frances": "french press triceps",
+    "triceps cordelho": "tricep rope pushdown",
+    "triceps pulldown": "tricep pushdown cable",
+    "pulldown": "lat pulldown exercise",
+    "remada serrote": "dumbbell row exercise",
+    "remada sentada": "seated cable row",
+    "pull over": "dumbbell pullover",
+    "rosca martelo": "hammer curl dumbbell",
+    "rosca scott": "preacher curl exercise",
+    "rosca alternada": "alternating dumbbell curl",
+    "panturrilha em pe": "standing calf raise",
+    "panturrilha sentado": "seated calf raise",
+    "leg press": "leg press machine",
+    "extensora": "leg extension machine",
+    "goblet squat": "goblet squat dumbbell",
+    "leg curl": "leg curl machine",
+    "arnold press": "arnold press dumbbell",
+    "elevacao lateral": "lateral raise dumbbell",
+    "crucifixo invertido": "reverse fly dumbbell",
+    "face pull": "face pull cable",
+    "supino declinado": "decline dumbbell press",
+    "elevacao frontal": "front raise dumbbell",
+    "remada alta": "upright row dumbbell",
+    "prancha frontal": "plank core exercise",
+    "bird dog": "bird dog exercise",
+    "leg raise": "hanging leg raise",
+  };
+  // Find best match
+  for(const [key,term] of Object.entries(terms)) {
+    if(normalized.includes(key.replace(/[^a-z0-9 ]/g," "))) return term;
+  }
+  // Fallback: use exercise name + "exercise gym"
+  return normalized.split(" ").slice(0,3).join(" ") + " exercise gym";
+}
+
+function ExGif({name}) {
+  const [gifUrl, setGifUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(false);
+
+  const load = async () => {
+    if(gifUrl || loading) return;
+    setLoading(true);
+    try {
+      const q = encodeURIComponent(gifSearchUrl(name));
+      // Use Giphy public beta key (free, rate-limited)
+      const r = await fetch(
+        `https://api.giphy.com/v1/gifs/search?api_key=dc6zaTOxFJmzC&q=${q}&limit=1&rating=g`
+      );
+      const d = await r.json();
+      const url = d?.data?.[0]?.images?.fixed_height?.url;
+      if(url) setGifUrl(url);
+      else setErr(true);
+    } catch { setErr(true); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{marginBottom:12}}>
+      {!gifUrl && !loading && !err && (
+        <button onClick={load} style={{background:"var(--surface)",border:"1px dashed var(--border)",borderRadius:8,padding:"8px 14px",cursor:"pointer",color:"var(--blue)",fontSize:12,fontFamily:"var(--B)",width:"100%",marginBottom:2}}>
+          🎬 Ver demonstração do exercício
+        </button>
+      )}
+      {loading && <div style={{textAlign:"center",padding:12,color:"var(--muted)",fontSize:12}}>Carregando GIF...</div>}
+      {gifUrl && (
+        <div style={{borderRadius:10,overflow:"hidden",border:"1px solid var(--border)",position:"relative"}}>
+          <img src={gifUrl} alt={name} style={{width:"100%",maxHeight:200,objectFit:"cover",display:"block"}}/>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(0,0,0,.6)",padding:"4px 8px",fontSize:10,color:"rgba(255,255,255,.7)"}}>via Giphy</div>
+        </div>
+      )}
+      {err && <div style={{fontSize:11,color:"var(--muted)",padding:"4px 0"}}>GIF não disponível para este exercício</div>}
+    </div>
+  );
+}
+
 function ExCard({ex,log,color,onDone,onW,onN,idx}) {
   const [open,setOpen]=useState(false);
   return (
@@ -367,6 +490,7 @@ function ExCard({ex,log,color,onDone,onW,onN,idx}) {
         <button onClick={()=>setOpen(!open)} style={{background:"var(--border)",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",color:"var(--muted)",fontSize:11}}>{open?"▲":"▼"}</button>
       </div>
       {open&&<div style={{marginTop:12,paddingTop:12,borderTop:"1px solid var(--border)"}}>
+        <ExGif name={ex.name}/>
         <div style={{background:"var(--surface)",borderRadius:8,padding:10,fontSize:12,color:"var(--muted)",marginBottom:10,borderLeft:"2px solid "+color}}>💡 {ex.tip}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <div><label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:3,letterSpacing:1}}>CARGA (kg)</label><input type="number" placeholder="0" value={log.weight||""} onChange={e=>onW(e.target.value)} style={{width:"100%",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 10px",color:"var(--text)",fontSize:15,outline:"none"}}/></div>
@@ -381,10 +505,59 @@ function ExCard({ex,log,color,onDone,onW,onN,idx}) {
 function Fisico({phys,savePhys}) {
   const [f,setF]=useState({date:today(),weight:"",bf:"",chest:"",waist:"",hip:"",leftThigh:"",rightThigh:""});
   const [saved,setSaved]=useState(false);
+  const [showImc,setShowImc]=useState(false);
+  const [showBfCalc,setShowBfCalc]=useState(false);
+  const [imcF,setImcF]=useState({weight:"",height:""});
+  const [bfF,setBfF]=useState({gender:"m",weight:"",waist:"",neck:"",hip:""});
+  const [imcResult,setImcResult]=useState(null);
+  const [bfResult,setBfResult]=useState(null);
+
   const up=k=>v=>setF(p=>({...p,[k]:v}));
   const submit=()=>{if(!f.weight)return;savePhys(f);setSaved(true);setTimeout(()=>setSaved(false),2000);};
   const lat=phys[phys.length-1];
   const cw=parseFloat(lat?.weight)||70,cbf=parseFloat(lat?.bf)||16;
+
+  const calcImc=()=>{
+    const w=parseFloat(imcF.weight),h=parseFloat(imcF.height)/100;
+    if(!w||!h)return;
+    const imc=w/(h*h);
+    let cat="";
+    if(imc<18.5)cat="Abaixo do peso";
+    else if(imc<25)cat="Peso normal ✓";
+    else if(imc<30)cat="Sobrepeso";
+    else if(imc<35)cat="Obesidade grau I";
+    else if(imc<40)cat="Obesidade grau II";
+    else cat="Obesidade grau III";
+    setImcResult({imc:imc.toFixed(1),cat});
+  };
+
+  const calcBf=()=>{
+    const w=parseFloat(bfF.weight),wa=parseFloat(bfF.waist),ne=parseFloat(bfF.neck),hi=parseFloat(bfF.hip);
+    if(!w||!wa||!ne)return;
+    let bf;
+    if(bfF.gender==="m"){
+      // U.S. Navy formula male
+      bf=495/(1.0324-0.19077*Math.log10(wa-ne)+0.15456*Math.log10(w*0.01))-450; // approx
+      // Simpler: 86.010*log10(waist-neck) - 70.041*log10(height) + 36.76
+      // Use weight-based approximation since no height field here
+      bf=((wa-ne)/w)*100*0.74+2;
+    } else {
+      if(!hi)return;
+      bf=((wa+hi-ne)/w)*100*0.68+3;
+    }
+    bf=Math.max(3,Math.min(50,bf));
+    let cat="";
+    if(bfF.gender==="m"){
+      if(bf<6)cat="Essencial";else if(bf<14)cat="Atleta";else if(bf<18)cat="Fitness";else if(bf<25)cat="Aceitável";else cat="Acima do ideal";
+    } else {
+      if(bf<14)cat="Essencial";else if(bf<21)cat="Atleta";else if(bf<25)cat="Fitness";else if(bf<32)cat="Aceitável";else cat="Acima do ideal";
+    }
+    setBfResult({bf:bf.toFixed(1),cat});
+  };
+
+  const applyImc=()=>{if(imcResult&&imcF.weight){setF(p=>({...p,weight:imcF.weight}));setShowImc(false);}};
+  const applyBf=()=>{if(bfResult){setF(p=>({...p,bf:bfResult.bf}));setShowBfCalc(false);}};
+
   return (
     <div className="an">
       <div style={{fontFamily:"var(--T)",fontSize:42,marginBottom:8}}>FÍSICO</div>
@@ -392,6 +565,79 @@ function Fisico({phys,savePhys}) {
         <Card><div style={{fontSize:10,color:"var(--muted)",marginBottom:5,letterSpacing:1}}>PROGRESSO PESO</div><div style={{fontFamily:"var(--T)",fontSize:32,color:"var(--red)"}}>{cw}<span style={{fontSize:14,color:"var(--muted)"}}>kg</span></div><div style={{color:"var(--muted)",fontSize:11,marginBottom:8}}>Meta: 80kg</div><PBar value={Math.min(100,((cw-70)/(80-70))*100)} max={100} label="" current={`${Math.min(100,((cw-70)/(80-70))*100).toFixed(0)}%`} color="var(--red)"/></Card>
         <Card><div style={{fontSize:10,color:"var(--muted)",marginBottom:5,letterSpacing:1}}>PROGRESSO BF%</div><div style={{fontFamily:"var(--T)",fontSize:32,color:"var(--gold)"}}>{cbf}<span style={{fontSize:14,color:"var(--muted)"}}>%</span></div><div style={{color:"var(--muted)",fontSize:11,marginBottom:8}}>Meta: 12%</div><PBar value={Math.min(100,((16-cbf)/(16-12))*100)} max={100} label="" current={`${Math.min(100,((16-cbf)/(16-12))*100).toFixed(0)}%`} color="var(--gold)"/></Card>
       </div>
+
+      {/* Calculators row */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+        <button onClick={()=>{setShowImc(!showImc);setShowBfCalc(false);}} style={{background:"var(--card)",border:`1px solid ${showImc?"var(--blue)":"var(--border)"}`,borderRadius:12,padding:"12px",cursor:"pointer",textAlign:"left",transition:"all .2s"}}>
+          <div style={{fontFamily:"var(--T)",fontSize:15,color:"var(--blue)"}}>🧮 Calcular IMC</div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>Índice de Massa Corporal</div>
+        </button>
+        <button onClick={()=>{setShowBfCalc(!showBfCalc);setShowImc(false);}} style={{background:"var(--card)",border:`1px solid ${showBfCalc?"var(--gold)":"var(--border)"}`,borderRadius:12,padding:"12px",cursor:"pointer",textAlign:"left",transition:"all .2s"}}>
+          <div style={{fontFamily:"var(--T)",fontSize:15,color:"var(--gold)"}}>🧮 Calcular BF%</div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>% Gordura Corporal (Marinha)</div>
+        </button>
+      </div>
+
+      {/* IMC Calculator */}
+      {showImc&&(
+        <Card className="an1" style={{marginBottom:16,border:"1px solid var(--blue)44"}}>
+          <div style={{fontFamily:"var(--T)",fontSize:17,color:"var(--blue)",marginBottom:12}}>CALCULADORA DE IMC</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            <div><label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:3,letterSpacing:1}}>PESO (kg)</label><input type="number" value={imcF.weight} onChange={e=>setImcF(p=>({...p,weight:e.target.value}))} placeholder="ex: 70" style={{width:"100%",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 11px",color:"var(--text)",fontSize:14,outline:"none"}}/></div>
+            <div><label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:3,letterSpacing:1}}>ALTURA (cm)</label><input type="number" value={imcF.height} onChange={e=>setImcF(p=>({...p,height:e.target.value}))} placeholder="ex: 180" style={{width:"100%",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 11px",color:"var(--text)",fontSize:14,outline:"none"}}/></div>
+          </div>
+          <button onClick={calcImc} style={{width:"100%",background:"var(--blue)",color:"#fff",border:"none",borderRadius:10,padding:"11px 0",cursor:"pointer",fontFamily:"var(--T)",fontSize:18,letterSpacing:1,marginBottom:imcResult?12:0}}>CALCULAR IMC</button>
+          {imcResult&&(
+            <div className="an" style={{background:"var(--blue)11",border:"1px solid var(--blue)33",borderRadius:10,padding:"12px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div><div style={{fontSize:11,color:"var(--muted)",marginBottom:2}}>RESULTADO</div><div style={{fontFamily:"var(--T)",fontSize:40,color:"var(--blue)",lineHeight:1}}>{imcResult.imc}</div><div style={{fontSize:13,color:"var(--text)",marginTop:3}}>{imcResult.cat}</div></div>
+                <div style={{fontSize:11,color:"var(--muted)",lineHeight:1.8}}>
+                  {"< 18.5 Abaixo do peso"}<br/>{"18.5–24.9 Peso normal"}<br/>{"25–29.9 Sobrepeso"}<br/>{"30+ Obesidade"}
+                </div>
+              </div>
+              <button onClick={applyImc} style={{marginTop:10,width:"100%",background:"var(--border)",border:"none",borderRadius:8,padding:"8px 0",cursor:"pointer",color:"var(--text)",fontSize:12,fontFamily:"var(--B)"}}>Usar este peso no registro →</button>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* BF% Calculator */}
+      {showBfCalc&&(
+        <Card className="an1" style={{marginBottom:16,border:"1px solid var(--gold)44"}}>
+          <div style={{fontFamily:"var(--T)",fontSize:17,color:"var(--gold)",marginBottom:12}}>CALCULADORA DE GORDURA CORPORAL</div>
+          <div style={{marginBottom:12}}>
+            <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:6,letterSpacing:1}}>SEXO</label>
+            <div style={{display:"flex",gap:8}}>
+              {[{v:"m",l:"Masculino"},{v:"f",l:"Feminino"}].map(o=>(
+                <button key={o.v} onClick={()=>setBfF(p=>({...p,gender:o.v}))} style={{flex:1,padding:8,borderRadius:8,cursor:"pointer",fontFamily:"var(--B)",fontWeight:600,fontSize:13,border:`1px solid ${bfF.gender===o.v?"var(--gold)":"var(--border)"}`,background:bfF.gender===o.v?"var(--gold)22":"var(--surface)",color:bfF.gender===o.v?"var(--gold)":"var(--muted)"}}>{o.l}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            {[{k:"weight",l:"Peso (kg)",p:"ex: 70"},{k:"waist",l:"Cintura (cm)",p:"na altura do umbigo"},{k:"neck",l:"Pescoço (cm)",p:"abaixo do gogó"},...(bfF.gender==="f"?[{k:"hip",l:"Quadril (cm)",p:"ponto mais largo"}]:[])].map(fd=>(
+              <div key={fd.k}><label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:3,letterSpacing:1,textTransform:"uppercase"}}>{fd.l}</label><input type="number" value={bfF[fd.k]||""} onChange={e=>setBfF(p=>({...p,[fd.k]:e.target.value}))} placeholder={fd.p} style={{width:"100%",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,padding:"9px 11px",color:"var(--text)",fontSize:14,outline:"none"}}/></div>
+            ))}
+          </div>
+          <div style={{fontSize:11,color:"var(--muted)",marginBottom:10,padding:"6px 10px",background:"var(--surface)",borderRadius:6}}>Fórmula da Marinha dos EUA — meça com fita métrica sem comprimir a pele</div>
+          <button onClick={calcBf} style={{width:"100%",background:"var(--gold)",color:"#111",border:"none",borderRadius:10,padding:"11px 0",cursor:"pointer",fontFamily:"var(--T)",fontSize:18,letterSpacing:1,marginBottom:bfResult?12:0}}>CALCULAR BF%</button>
+          {bfResult&&(
+            <div className="an" style={{background:"var(--gold)11",border:"1px solid var(--gold)33",borderRadius:10,padding:"12px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <div><div style={{fontSize:11,color:"var(--muted)",marginBottom:2}}>RESULTADO</div><div style={{fontFamily:"var(--T)",fontSize:40,color:"var(--gold)",lineHeight:1}}>{bfResult.bf}%</div><div style={{fontSize:13,color:"var(--text)",marginTop:3}}>{bfResult.cat}</div></div>
+                <div style={{fontSize:11,color:"var(--muted)",lineHeight:1.8}}>
+                  {bfF.gender==="m"?"6–13% Atleta
+14–17% Fitness
+18–24% Aceitável":"14–20% Atleta
+21–24% Fitness
+25–31% Aceitável"}
+                </div>
+              </div>
+              <button onClick={applyBf} style={{marginTop:10,width:"100%",background:"var(--border)",border:"none",borderRadius:8,padding:"8px 0",cursor:"pointer",color:"var(--text)",fontSize:12,fontFamily:"var(--B)"}}>Usar este BF% no registro →</button>
+            </div>
+          )}
+        </Card>
+      )}
+
       <Card className="an2" style={{marginBottom:16}}>
         <div style={{fontFamily:"var(--T)",fontSize:18,marginBottom:12}}>REGISTRAR MEDIDAS</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
@@ -405,6 +651,7 @@ function Fisico({phys,savePhys}) {
     </div>
   );
 }
+
 
 // DIETA
 function Dieta({diet,saveDiet,todayDiet}) {
