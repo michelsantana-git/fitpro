@@ -625,11 +625,9 @@ function Fisico({phys,savePhys}) {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
                 <div><div style={{fontSize:11,color:"var(--muted)",marginBottom:2}}>RESULTADO</div><div style={{fontFamily:"var(--T)",fontSize:40,color:"var(--gold)",lineHeight:1}}>{bfResult.bf}%</div><div style={{fontSize:13,color:"var(--text)",marginTop:3}}>{bfResult.cat}</div></div>
                 <div style={{fontSize:11,color:"var(--muted)",lineHeight:1.8}}>
-                  {bfF.gender==="m"?"6–13% Atleta
-14–17% Fitness
-18–24% Aceitável":"14–20% Atleta
-21–24% Fitness
-25–31% Aceitável"}
+                  {bfF.gender==="m"
+                    ?<>6–13% Atleta<br/>14–17% Fitness<br/>18–24% Aceitável</>
+                    :<>14–20% Atleta<br/>21–24% Fitness<br/>25–31% Aceitável</>}
                 </div>
               </div>
               <button onClick={applyBf} style={{marginTop:10,width:"100%",background:"var(--border)",border:"none",borderRadius:8,padding:"8px 0",cursor:"pointer",color:"var(--text)",fontSize:12,fontFamily:"var(--B)"}}>Usar este BF% no registro →</button>
