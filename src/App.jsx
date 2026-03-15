@@ -107,25 +107,19 @@ const Ok = ({msg}) => msg?<div style={{background:"#52b78822",border:"1px solid 
 
 // Claude API
 async function genWorkout(briefing) {
-  const resp = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      model:"claude-sonnet-4-20250514",
-      max_tokens:1000,
-      messages:[{role:"user",content:`Você é um personal trainer especializado em hipertrofia. Com base no briefing abaixo, crie um plano de 4 dias (SEG, TER, QUI, SEX) focado em hipertrofia.
-
-BRIEFING: ${briefing}
-
-Responda APENAS com JSON válido sem markdown:
-{"SEG":{"focus":"string","muscle_group":"string_sem_espacos","exercises":[{"id":"A1","name":"string","sets":"string","reps":"string","rest":"string","tip":"string"}]},"TER":{...},"QUI":{...},"SEX":{...}}
-
-Regras: sem barra livre, apenas halteres/máquinas/cabos, 6-8 exercícios por dia, adapte ao nível e limitações do briefing.`}]
-    })
+  const resp = await fetch("/api/generate-workout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ briefing }),
   });
+
+  if (!resp.ok) {
+    const err = await resp.json();
+    throw new Error(err.error || "Erro desconhecido");
+  }
+
   const data = await resp.json();
-  const text = data.content.map(i=>i.text||"").join("").replace(/```json|```/g,"").trim();
-  return JSON.parse(text);
+  return data.workout;
 }
 
 // User store
