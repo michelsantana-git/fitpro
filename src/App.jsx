@@ -210,21 +210,30 @@ function LoginF({setView,onLogin}){
 function RegF({setView,onLogin}){
   const [f,setF]=useState({name:"",email:"",username:"",pw:"",confirm:"",weight:"",bf:""});
   const [err,setErr]=useState("");const [loading,setLoading]=useState(false);
+  const [success,setSuccess]=useState(false);
   const up=k=>v=>setF(p=>({...p,[k]:v}));
   const go=async()=>{
+    if(!f.name.trim()){setErr("Nome é obrigatório");return;}
+    if(!f.username.trim()){setErr("Username é obrigatório");return;}
     if(f.pw!==f.confirm){setErr("Senhas não coincidem");return;}
     if(f.pw.length<6){setErr("Senha: mín. 6 caracteres");return;}
     if(!/^[a-z0-9_]+$/i.test(f.username)){setErr("Username: apenas letras, números e _");return;}
     setLoading(true);setErr("");
-    // Check username uniqueness
-    const{data:existing}=await supabase.from("profiles").select("id").eq("username",f.username.toLowerCase()).single();
-    if(existing){setErr("Username já em uso");setLoading(false);return;}
+    // Check username uniqueness before signup
+    const{data:existing}=await supabase.from("profiles").select("id").eq("username",f.username.toLowerCase()).maybeSingle();
+    if(existing){setErr("Username já em uso — escolha outro");setLoading(false);return;}
     const{data,error}=await supabase.auth.signUp({
-      email:f.email,password:f.pw,
-      options:{data:{name:f.name,username:f.username.toLowerCase()}}
+      email:f.email.trim(),
+      password:f.pw,
+      options:{data:{name:f.name.trim(),username:f.username.trim().toLowerCase()}}
     });
-    if(error){setErr(error.message);setLoading(false);return;}
-    // Save initial phys entry if provided
+    if(error){
+      // Translate common errors to Portuguese
+      const msg=error.message.includes("already registered")?"Este email já está cadastrado. Tente fazer login.":error.message.includes("Database")?"Erro ao criar perfil. Tente novamente em alguns segundos.":error.message;
+      setErr(msg);setLoading(false);return;
+    }
+    // If email confirmation is disabled, user is created and logged in immediately
+    // If email confirmation is enabled, data.user exists but session is null
     if(data.user&&(f.weight||f.bf)){
       await supabase.from("phys_logs").upsert({
         user_id:data.user.id,log_date:today(),
@@ -232,8 +241,20 @@ function RegF({setView,onLogin}){
         bf:f.bf?parseFloat(f.bf):null,
       });
     }
+    setSuccess(true);
     setLoading(false);
   };
+  if(success) return(
+    <Card style={{width:"100%",maxWidth:420,textAlign:"center"}} className="an">
+      <div style={{fontSize:48,marginBottom:12}}>✅</div>
+      <div style={{fontFamily:"var(--T)",fontSize:24,marginBottom:8,color:"var(--green)"}}>CONTA CRIADA!</div>
+      <p style={{color:"var(--muted)",fontSize:14,marginBottom:20,lineHeight:1.6}}>
+        Sua conta foi criada com sucesso.<br/>
+        Verifique seu email <strong style={{color:"var(--text)"}}>{f.email}</strong> para confirmar o cadastro e depois faça login.
+      </p>
+      <Btn onClick={()=>setView("login")} style={{width:"100%"}}>Ir para o Login</Btn>
+    </Card>
+  );
   return(
     <Card style={{width:"100%",maxWidth:420}} className="an">
       <div style={{fontFamily:"var(--T)",fontSize:26,marginBottom:18}}>CRIAR CONTA</div>
@@ -256,46 +277,54 @@ function RegF({setView,onLogin}){
 }
 
 function ResetF({setView}){
-  const [method,setMethod]=useState("email");
-  const [contact,setContact]=useState("");
-  const [step,setStep]=useState(1);
-  const [newPw,setNewPw]=useState("");
-  const [msg,setMsg]=useState("");const [err,setErr]=useState("");
+  const [email,setEmail]=useState("");
+  const [sent,setSent]=useState(false);
+  const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
 
   const send=async()=>{
-    if(!contact){setErr("Preencha o campo");return;}
+    if(!email.trim()){setErr("Digite seu email");return;}
     setLoading(true);setErr("");
-    if(method==="email"){
-      const{error}=await supabase.auth.resetPasswordForEmail(contact,{redirectTo:window.location.origin+"?reset=true"});
-      if(error)setErr(error.message);
-      else{setMsg("✓ Email de recuperação enviado! Verifique sua caixa de entrada.");setStep(2);}
+    const{error}=await supabase.auth.resetPasswordForEmail(email.trim(),{
+      redirectTo:window.location.origin
+    });
+    if(error){
+      setErr(error.message.includes("not found")?"Email não encontrado no sistema":error.message);
     } else {
-      // SMS: Supabase supports OTP via phone
-      const{error}=await supabase.auth.signInWithOtp({phone:contact});
-      if(error)setErr(error.message);
-      else{setMsg(`✓ Código enviado para ${contact}`);setStep(2);}
+      setSent(true);
     }
     setLoading(false);
   };
+
+  if(sent) return(
+    <Card style={{width:"100%",maxWidth:380,textAlign:"center"}} className="an">
+      <div style={{fontSize:48,marginBottom:12}}>📧</div>
+      <div style={{fontFamily:"var(--T)",fontSize:22,marginBottom:8,color:"var(--blue)"}}>EMAIL ENVIADO</div>
+      <p style={{color:"var(--muted)",fontSize:13,marginBottom:8,lineHeight:1.6}}>
+        Enviamos um link de recuperação para <strong style={{color:"var(--text)"}}>{email}</strong>.
+      </p>
+      <div style={{background:"var(--surface)",borderRadius:8,padding:12,marginBottom:16,textAlign:"left"}}>
+        <div style={{fontSize:12,color:"var(--muted)",lineHeight:1.8}}>
+          <div>1. Verifique sua caixa de entrada e a pasta <strong>Spam</strong></div>
+          <div>2. Clique no link "Reset Password"</div>
+          <div>3. Defina sua nova senha na página que abrir</div>
+          <div>4. Volte aqui e faça login com a nova senha</div>
+        </div>
+      </div>
+      <Btn onClick={()=>setView("login")} style={{width:"100%"}}>← Voltar ao Login</Btn>
+    </Card>
+  );
+
   return(
     <Card style={{width:"100%",maxWidth:380}} className="an">
-      <div style={{fontFamily:"var(--T)",fontSize:26,marginBottom:18}}>RECUPERAR SENHA</div>
-      <Err msg={err}/><Ok msg={msg}/>
-      {step===1&&<>
-        <div style={{marginBottom:14}}>
-          <label style={{fontSize:11,color:"var(--muted)",display:"block",marginBottom:6,letterSpacing:1}}>MÉTODO</label>
-          <div style={{display:"flex",gap:8}}>
-            {["email","sms"].map(m=><button key={m} onClick={()=>setMethod(m)} style={{flex:1,padding:8,borderRadius:8,cursor:"pointer",fontFamily:"var(--B)",fontWeight:600,fontSize:13,border:`1px solid ${method===m?"var(--red)":"var(--border)"}`,background:method===m?"var(--red)22":"var(--surface)",color:method===m?"var(--red)":"var(--muted)"}}>{m==="email"?"📧 Email":"📱 SMS"}</button>)}
-          </div>
-        </div>
-        <Inp label={method==="email"?"Email cadastrado":"Telefone (+55...)"} type={method==="email"?"email":"tel"} value={contact} onChange={setContact}/>
-        <Btn onClick={send} disabled={loading} style={{width:"100%",marginBottom:12}}>
-          {loading?<span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><Spinner/>Enviando...</span>:"Enviar"}
-        </Btn>
-      </>}
-      {step===2&&method==="email"&&<p style={{color:"var(--muted)",fontSize:13,marginBottom:14}}>Clique no link do email para redefinir sua senha. Depois volte ao login.</p>}
-      <button onClick={()=>setView("login")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:13}}>← Voltar</button>
+      <div style={{fontFamily:"var(--T)",fontSize:26,marginBottom:8}}>RECUPERAR SENHA</div>
+      <p style={{color:"var(--muted)",fontSize:13,marginBottom:18}}>Digite o email da sua conta e enviaremos um link para redefinir a senha.</p>
+      <Err msg={err}/>
+      <Inp label="Email cadastrado" type="email" value={email} onChange={setEmail} placeholder="seu@email.com"/>
+      <Btn onClick={send} disabled={loading} style={{width:"100%",marginBottom:12}}>
+        {loading?<span style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><Spinner/>Enviando...</span>:"Enviar link de recuperação"}
+      </Btn>
+      <button onClick={()=>setView("login")} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:13}}>← Voltar ao login</button>
     </Card>
   );
 }
