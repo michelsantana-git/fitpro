@@ -106,11 +106,11 @@ const Err = ({msg}) => msg?<div style={{background:"#e6394622",border:"1px solid
 const Ok = ({msg}) => msg?<div style={{background:"#52b78822",border:"1px solid var(--green)",borderRadius:8,padding:"8px 12px",color:"var(--green)",fontSize:13,marginBottom:12}}>{msg}</div>:null;
 
 // ── Claude API (via proxy) ─────────────────────────────────────────────────────
-async function genWorkout(briefing) {
+async function genWorkout(briefing, days) {
   const resp = await fetch("/api/generate-workout", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({briefing}),
+    body:JSON.stringify({briefing, days}),
   });
   if(!resp.ok){const e=await resp.json().catch(()=>({error:"Erro"}));throw new Error(e.error||"Erro na API");}
   const data = await resp.json();
@@ -379,7 +379,7 @@ function MainApp({session,profile,setProfile}){
   const [dataLoaded,setDataLoaded]=useState(false);
 
   const td=today();
-  const myWorkout=profile.workout||BASE_WORKOUT;
+  const myWorkout=profile.workout||null;
   const todayWaterEntry=water.find(x=>x.log_date===td)||{log_date:td,doses:[],goal_ml:waterGoal};
   const todayWaterMl=(todayWaterEntry.doses||[]).reduce((a,d)=>a+(d.ml||0),0);
   const todayDiet=diet.find(x=>x.log_date===td)||{protein:0,calories:0};
@@ -482,19 +482,48 @@ function MainApp({session,profile,setProfile}){
       .then(({data})=>setPartner(data||null));
   },[profile.partner_username]);
 
-  const TABS=[{id:"dash",icon:"⚡"},{id:"treino",icon:"🏋️"},{id:"fisico",icon:"📊"},{id:"dieta",icon:"🥩"},{id:"agua",icon:"💧"},{id:"progresso",icon:"📈"},{id:"parceiro",icon:"🤝"},{id:"perfil",icon:"👤"}];
+  // Bottom nav: 4 primary tabs
+  const BOTTOM_TABS=[
+    {id:"dash",  icon:"⚡", label:"Início"},
+    {id:"treino",icon:"🏋️",label:"Treino"},
+    {id:"fisico",icon:"📊",label:"Físico"},
+    {id:"parceiro",icon:"🤝",label:"Parceiro"},
+  ];
+  // Top nav: secondary tabs + logout
+  const TOP_TABS=[
+    {id:"progresso",icon:"📈",label:"Progresso"},
+    {id:"agua",    icon:"💧",label:"Água"},
+    {id:"dieta",   icon:"🥩",label:"Dieta"},
+    {id:"perfil",  icon:"👤",label:"Perfil"},
+  ];
 
   return(
-    <div style={{minHeight:"100vh",background:"var(--bg)"}}>
+    <div style={{minHeight:"100vh",background:"var(--bg)",paddingBottom:72}}>
       <G/>
-      <header style={{position:"sticky",top:0,zIndex:100,background:"rgba(10,10,15,.97)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border)",padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
-        <div style={{fontFamily:"var(--T)",fontSize:28,color:"var(--red)",letterSpacing:2}}>FIT<span style={{color:"var(--text)"}}>PRO</span></div>
-        <nav style={{display:"flex",gap:2,alignItems:"center"}}>
-          {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} title={t.id} style={{background:tab===t.id?"var(--red)":"transparent",color:tab===t.id?"#fff":"var(--muted)",border:"none",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:17,transition:"all .2s"}}>{t.icon}</button>)}
-          <button onClick={logout} style={{background:"transparent",color:"var(--muted)",border:"none",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:11,fontFamily:"var(--B)",fontWeight:700,letterSpacing:1}}>SAIR</button>
-        </nav>
+
+      {/* ── Top bar: logo + secondary tabs + logout ── */}
+      <header style={{position:"sticky",top:0,zIndex:100,background:"rgba(10,10,15,.97)",backdropFilter:"blur(20px)",borderBottom:"1px solid var(--border)",padding:"0 12px",display:"flex",alignItems:"center",justifyContent:"space-between",height:48}}>
+        <div style={{fontFamily:"var(--T)",fontSize:24,color:"var(--red)",letterSpacing:2,flexShrink:0}}>FIT<span style={{color:"var(--text)"}}>PRO</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:2}}>
+          {TOP_TABS.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} title={t.label} style={{
+              background:tab===t.id?"var(--red)22":"transparent",
+              color:tab===t.id?"var(--red)":"var(--muted)",
+              border:"none",borderRadius:8,padding:"4px 8px",cursor:"pointer",
+              fontSize:15,transition:"all .2s",display:"flex",flexDirection:"column",
+              alignItems:"center",gap:1,
+            }}>
+              <span style={{fontSize:16}}>{t.icon}</span>
+              <span style={{fontSize:9,fontFamily:"var(--B)",fontWeight:600,letterSpacing:.5}}>{t.label}</span>
+            </button>
+          ))}
+          <div style={{width:1,height:20,background:"var(--border)",margin:"0 4px"}}/>
+          <button onClick={logout} style={{background:"transparent",color:"var(--muted)",border:"none",borderRadius:8,padding:"4px 8px",cursor:"pointer",fontSize:10,fontFamily:"var(--B)",fontWeight:700,letterSpacing:1}}>SAIR</button>
+        </div>
       </header>
-      <main style={{padding:"20px 16px",maxWidth:860,margin:"0 auto"}}>
+
+      {/* ── Main content ── */}
+      <main style={{padding:"16px 16px",maxWidth:860,margin:"0 auto"}}>
         {!dataLoaded ? (
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"60vh",flexDirection:"column",gap:16}}>
             <Spinner size={32} color="var(--red)"/>
@@ -503,23 +532,48 @@ function MainApp({session,profile,setProfile}){
         ) : (
           <>
             {tab==="dash"&&<Dash wLogs={wLogs} todayWaterMl={todayWaterMl} waterGoal={waterGoal} todayDiet={todayDiet} phys={phys} setTab={setTab} profile={profile} partner={partner} myWorkout={myWorkout}/>}
-            {tab==="treino"&&<Treino wLogs={wLogs} logSet={logSet} markDone={markDone} activeDay={activeDay} setActiveDay={setActiveDay} myWorkout={myWorkout}/>}
+            {tab==="treino"&&<Treino wLogs={wLogs} logSet={logSet} markDone={markDone} activeDay={activeDay} setActiveDay={setActiveDay} myWorkout={myWorkout} setTab={setTab}/>}
             {tab==="fisico"&&<Fisico phys={phys} savePhys={savePhys}/>}
             {tab==="dieta"&&<Dieta diet={diet} saveDiet={saveDiet} todayDiet={todayDiet}/>}
             {tab==="agua"&&<Agua todayWaterMl={todayWaterMl} waterGoal={waterGoal} setWaterGoal={setWaterGoal} todayEntry={todayWaterEntry} addDose={addDose} removeDose={removeDose} water={water}/>}
             {tab==="progresso"&&<Prog phys={phys} water={water} diet={diet} wLogs={wLogs}/>}
-            {tab==="parceiro"&&<Parceiro profile={profile} updateProfile={updateProfile} partner={partner} myWorkout={myWorkout}/>}
+            {tab==="parceiro"&&<Parceiro profile={profile} updateProfile={updateProfile} partner={partner} myWorkout={myWorkout} setTab={setTab}/>}
             {tab==="perfil"&&<Perfil profile={profile} updateProfile={updateProfile} setTab={setTab} session={session}/>}
           </>
         )}
       </main>
+
+      {/* ── Bottom tab bar (Apple style) ── */}
+      <nav style={{
+        position:"fixed",bottom:0,left:0,right:0,zIndex:100,
+        background:"rgba(10,10,15,.97)",backdropFilter:"blur(24px)",
+        borderTop:"1px solid var(--border)",
+        display:"flex",alignItems:"stretch",
+        height:64,paddingBottom:"env(safe-area-inset-bottom,0px)",
+      }}>
+        {BOTTOM_TABS.map(t=>{
+          const active=tab===t.id;
+          return(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{
+              flex:1,display:"flex",flexDirection:"column",alignItems:"center",
+              justifyContent:"center",gap:3,border:"none",background:"transparent",
+              cursor:"pointer",padding:"8px 0",transition:"all .15s",
+              color:active?"var(--red)":"var(--muted)",
+            }}>
+              <span style={{fontSize:22,lineHeight:1,filter:active?"none":"grayscale(0.3)"}}>{t.icon}</span>
+              <span style={{fontSize:10,fontFamily:"var(--B)",fontWeight:active?700:500,letterSpacing:.3}}>{t.label}</span>
+              {active&&<div style={{position:"absolute",bottom:0,width:32,height:2,background:"var(--red)",borderRadius:"2px 2px 0 0"}}/>}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────────────────────────
 function Dash({wLogs,todayWaterMl,waterGoal,todayDiet,phys,setTab,profile,partner,myWorkout}){
-  const td=today(),dk=todayDayKey(),hw=myWorkout[dk];
+  const td=today(),dk=todayDayKey(),hw=myWorkout?myWorkout[dk]:null;
   const lat=phys[phys.length-1];
   const done=hw?hw.exercises.filter(e=>wLogs[`${td}_${dk}_${e.id}`]?.done).length:0;
   const total=hw?hw.exercises.length:0;
@@ -533,7 +587,18 @@ function Dash({wLogs,todayWaterMl,waterGoal,todayDiet,phys,setTab,profile,partne
         {hw?<div style={{color:"var(--muted)",marginTop:4}}>{hw.icon||"🏋️"} {hw.focus}</div>:<div style={{color:"var(--muted)",marginTop:4}}>💤 Dia de descanso — recuperação ativa</div>}
         {partner&&<div style={{marginTop:5,fontSize:13,color:"var(--purple)"}}>🤝 Parceiro: <strong>{partner.name}</strong></div>}
       </div>
-      {!profile.workout&&<Card className="an1" style={{marginBottom:14,borderLeft:"3px solid var(--purple)",cursor:"pointer"}} onClick={()=>setTab("perfil")}><div style={{display:"flex",alignItems:"center",gap:12}}><div style={{fontSize:24}}>🤖</div><div><div style={{fontWeight:700,color:"var(--purple)"}}>Gere seu treino com IA</div><div style={{fontSize:12,color:"var(--muted)"}}>Preencha seu briefing no Perfil</div></div><div style={{marginLeft:"auto",color:"var(--purple)"}}>→</div></div></Card>}
+      {!profile.workout&&(
+        <Card className="an1" style={{marginBottom:14,borderLeft:"3px solid var(--purple)",cursor:"pointer"}} onClick={()=>setTab("perfil")}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{fontSize:28}}>🤖</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,color:"var(--purple)",fontSize:15}}>Nenhum treino configurado</div>
+              <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>Toque aqui para preencher seu briefing e gerar seu plano personalizado com IA</div>
+            </div>
+            <div style={{color:"var(--purple)",fontSize:20}}>→</div>
+          </div>
+        </Card>
+      )}
       <div className="an1" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10,marginBottom:14}}>
         {[
           {l:"Peso",v:lat?.weight||"—",u:"kg",c:"var(--red)"},
@@ -555,14 +620,27 @@ function Dash({wLogs,todayWaterMl,waterGoal,todayDiet,phys,setTab,profile,partne
 }
 
 // ── TREINO ─────────────────────────────────────────────────────────────────────
-function Treino({wLogs,logSet,markDone,activeDay,setActiveDay,myWorkout}){
-  const td=today(),day=myWorkout[activeDay];
-  if(!day)return<div style={{color:"var(--muted)"}}>Treino não configurado.</div>;
+function Treino({wLogs,logSet,markDone,activeDay,setActiveDay,myWorkout,setTab}){
+  const td=today(),day=myWorkout?myWorkout[activeDay]:null;
+  if(!myWorkout) return(
+    <div className="an" style={{textAlign:"center",padding:"60px 20px"}}>
+      <div style={{fontSize:56,marginBottom:16}}>🤖</div>
+      <div style={{fontFamily:"var(--T)",fontSize:28,marginBottom:8}}>NENHUM TREINO ATIVO</div>
+      <div style={{color:"var(--muted)",fontSize:14,marginBottom:24,lineHeight:1.6}}>
+        Você ainda não gerou seu treino personalizado.<br/>
+        Preencha seu briefing e deixa a IA montar seu plano.
+      </div>
+      <Btn onClick={()=>setTab("perfil")} variant="purple" style={{padding:"12px 32px",fontSize:16}}>
+        🤖 Criar meu treino com IA
+      </Btn>
+    </div>
+  );
+  if(!day)return<div style={{color:"var(--muted)"}}>Treino não configurado para este dia.</div>;
   return(
     <div className="an">
       <div style={{fontFamily:"var(--T)",fontSize:42,marginBottom:8}}>TREINO</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:18}}>
-        {DAY_ORDER.map(d=>{const dd=myWorkout[d];if(!dd)return null;const done=dd.exercises.filter(e=>wLogs[`${td}_${d}_${e.id}`]?.done).length;return(
+        {Object.keys(myWorkout).map(d=>{const dd=myWorkout[d];if(!dd)return null;const done=dd.exercises.filter(e=>wLogs[`${td}_${d}_${e.id}`]?.done).length;return(
           <button key={d} onClick={()=>setActiveDay(d)} style={{background:activeDay===d?(dd.color||"var(--red)"):"var(--card)",border:`1px solid ${activeDay===d?(dd.color||"var(--red)"):"var(--border)"}`,color:activeDay===d?"#fff":"var(--text)",borderRadius:12,padding:"10px 14px",cursor:"pointer",fontFamily:"var(--B)",fontWeight:600,textAlign:"left",transition:"all .2s"}}>
             <div style={{fontFamily:"var(--T)",fontSize:17}}>{dd.icon||"🏋️"} {dd.label||d}</div>
             <div style={{fontSize:11,opacity:.8,marginTop:2}}>{dd.focus}</div>
@@ -791,10 +869,10 @@ function Prog({phys,water,diet,wLogs}){
 }
 
 // ── PARCEIRO ───────────────────────────────────────────────────────────────────
-function Parceiro({profile,updateProfile,partner,myWorkout}){
+function Parceiro({profile,updateProfile,partner,myWorkout,setTab}){
   const [un,setUn]=useState(profile.partner_username||"");
   const [msg,setMsg]=useState("");const [err,setErr]=useState("");
-  const dk=todayDayKey(),myDay=myWorkout[dk];
+  const dk=todayDayKey(),myDay=myWorkout?myWorkout[dk]:null;
   const partnerWorkout=partner?.workout||BASE_WORKOUT;
   const partnerDay=partner?partnerWorkout[dk]:null;
 
@@ -864,15 +942,40 @@ function Perfil({profile,updateProfile,setTab,session}){
   const [generating,setGenerating]=useState(false);
   const [genMsg,setGenMsg]=useState("");const [genErr,setGenErr]=useState("");
   const [saved,setSaved]=useState(false);
+  // Days selector - default to existing workout days or common 4-day split
+  const existingDays=profile.workout?Object.keys(profile.workout):[];
+  const [selectedDays,setSelectedDays]=useState(existingDays.length?existingDays:["SEG","TER","QUI","SEX"]);
+  const toggleDay=d=>setSelectedDays(prev=>prev.includes(d)?prev.filter(x=>x!==d):[...prev,d]);
+  const ALL_DAYS=["SEG","TER","QUA","QUI","SEX","SAB"];
+  const DAY_LABELS={SEG:"Seg",TER:"Ter",QUA:"Qua",QUI:"Qui",SEX:"Sex",SAB:"Sáb"};
   const saveProfile=async()=>{await updateProfile({name,briefing});setSaved(true);setEditing(false);setTimeout(()=>setSaved(false),2000);};
   const generate=async()=>{
-    if(briefing.trim().length<50){setGenErr("Descreva mais sobre você — mín. 50 caracteres.");return;}
+    const currentBriefing=briefing.trim();
+    if(currentBriefing.length<50){setGenErr("Descreva mais sobre você — mín. 50 caracteres.");return;}
+    if(selectedDays.length<2){setGenErr("Selecione pelo menos 2 dias de treino.");return;}
     setGenerating(true);setGenErr("");setGenMsg("");
+    // Save briefing first to avoid stale state
+    await updateProfile({briefing:currentBriefing});
     try{
-      const w=await genWorkout(briefing);
+      const dayList=selectedDays.join(", ");
+      const fullBriefing=currentBriefing+"\n\nDias de treino disponíveis: "+dayList+". Monte o plano exatamente para esses dias (use esses códigos como chaves do JSON: "+selectedDays.join(",")+").";
+      const w=await genWorkout(fullBriefing,selectedDays);
+      const DAY_META={
+        SEG:{label:"SEGUNDA",color:"#e63946",icon:"💪"},
+        TER:{label:"TERÇA",color:"#a855f7",icon:"🏋️"},
+        QUA:{label:"QUARTA",color:"#38bdf8",icon:"💪"},
+        QUI:{label:"QUINTA",color:"#52b788",icon:"🦵"},
+        SEX:{label:"SEXTA",color:"#f4a261",icon:"🔥"},
+        SAB:{label:"SÁBADO",color:"#e63946",icon:"🏃"},
+      };
       const merged={};
-      DAY_ORDER.forEach(d=>{if(w[d])merged[d]={...BASE_WORKOUT[d],...w[d],color:BASE_WORKOUT[d].color,icon:BASE_WORKOUT[d].icon,label:BASE_WORKOUT[d].label};});
-      await updateProfile({workout:merged,briefing});
+      selectedDays.forEach(d=>{
+        if(w[d]){
+          const meta=DAY_META[d]||{label:d,color:"#e63946",icon:"🏋️"};
+          merged[d]={...meta,...w[d],color:meta.color,icon:meta.icon,label:meta.label};
+        }
+      });
+      await updateProfile({workout:merged,briefing:currentBriefing});
       setGenMsg("✓ Treino personalizado gerado! Acessando aba Treino...");
       setTimeout(()=>setTab("treino"),2200);
     }catch(e){setGenErr("Erro ao gerar treino: "+e.message);}
@@ -895,6 +998,27 @@ function Perfil({profile,updateProfile,setTab,session}){
           <div><div style={{fontFamily:"var(--T)",fontSize:19,color:"var(--purple)"}}>TREINO PERSONALIZADO COM IA</div><div style={{fontSize:12,color:"var(--muted)"}}>Descreva seu perfil — a IA cria seu plano completo</div></div>
         </div>
         <Err msg={genErr}/><Ok msg={genMsg}/>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:8,letterSpacing:1,textTransform:"uppercase"}}>Dias de treino</label>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {ALL_DAYS.map(d=>{
+              const sel=selectedDays.includes(d);
+              return(
+                <button key={d} onClick={()=>toggleDay(d)} style={{
+                  padding:"6px 14px",borderRadius:8,cursor:"pointer",
+                  fontFamily:"var(--B)",fontWeight:700,fontSize:13,
+                  border:`1px solid ${sel?"var(--red)":"var(--border)"}`,
+                  background:sel?"var(--red)":"var(--surface)",
+                  color:sel?"#fff":"var(--muted)",
+                  transition:"all .15s"
+                }}>{DAY_LABELS[d]}</button>
+              );
+            })}
+          </div>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:6}}>
+            {selectedDays.length} dia{selectedDays.length!==1?"s":""} selecionado{selectedDays.length!==1?"s":""} · mín. 2
+          </div>
+        </div>
         <label style={{fontSize:10,color:"var(--muted)",display:"block",marginBottom:5,letterSpacing:1,textTransform:"uppercase"}}>Seu briefing</label>
         <textarea value={briefing} onChange={e=>setBriefing(e.target.value)} rows={9}
           placeholder={"Descreva tudo sobre você:\n\n• Idade, peso, altura, % gordura\n• Nível: iniciante / intermediário / avançado\n• Objetivos principais (ex: vastos grandes, ombros 3D)\n• Dias disponíveis e duração máxima por sessão\n• Limitações físicas (lombar, joelho, ombro...)\n• Equipamentos disponíveis\n• Qualquer detalhe relevante"}
@@ -907,7 +1031,7 @@ function Perfil({profile,updateProfile,setTab,session}){
         </div>
         {profile.workout&&<div style={{marginTop:10,padding:"7px 11px",background:"var(--green)11",borderRadius:8,fontSize:11,color:"var(--muted)"}}>✓ Você já tem um treino ativo. Gerar novamente irá substituí-lo.</div>}
       </Card>
-      {profile.workout&&<Card className="an3"><div style={{fontFamily:"var(--T)",fontSize:16,marginBottom:12}}>SEU TREINO ATUAL</div><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>{DAY_ORDER.map(d=>{const dd=profile.workout[d];if(!dd)return null;return(<div key={d} style={{background:"var(--surface)",borderRadius:10,padding:12,borderLeft:`3px solid ${dd.color||"var(--red)"}`}}><div style={{fontFamily:"var(--T)",fontSize:14,color:dd.color||"var(--red)"}}>{dd.label||d}</div><div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{dd.focus}</div><div style={{fontSize:11,color:"var(--muted)"}}>{dd.exercises?.length||0} exercícios</div></div>);})}</div></Card>}
+      {profile.workout&&<Card className="an3"><div style={{fontFamily:"var(--T)",fontSize:16,marginBottom:12}}>SEU TREINO ATUAL</div><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8}}>{Object.keys(profile.workout||{}).map(d=>{const dd=profile.workout[d];if(!dd)return null;return(<div key={d} style={{background:"var(--surface)",borderRadius:10,padding:12,borderLeft:`3px solid ${dd.color||"var(--red)"}`}}><div style={{fontFamily:"var(--T)",fontSize:14,color:dd.color||"var(--red)"}}>{dd.label||d}</div><div style={{fontSize:12,fontWeight:700,marginBottom:3}}>{dd.focus}</div><div style={{fontSize:11,color:"var(--muted)"}}>{dd.exercises?.length||0} exercícios</div></div>);})}</div></Card>}
     </div>
   );
 }
