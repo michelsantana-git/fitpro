@@ -347,8 +347,30 @@ export default function App(){
 
   useEffect(()=>{
     if(!session?.user)return;
-    supabase.from("profiles").select("*").eq("id",session.user.id).single()
-      .then(({data})=>setProfile(data));
+    const u=session.user;
+    supabase.from("profiles").select("*").eq("id",u.id).maybeSingle()
+      .then(async({data,error})=>{
+        if(data){
+          setProfile(data);
+        } else {
+          // Profile missing (trigger failed or old account) — create it now
+          const meta=u.raw_user_meta_data||{};
+          const fallbackUsername="user_"+u.id.replace(/-/g,"").slice(0,8);
+          const newProfile={
+            id:u.id,
+            name:meta.name||u.email?.split("@")[0]||"Usuário",
+            username:meta.username||fallbackUsername,
+            briefing:"",
+            workout:null,
+            partner_username:"",
+            water_goal_ml:2500,
+          };
+          const{data:created}=await supabase.from("profiles")
+            .upsert(newProfile,{onConflict:"id"})
+            .select().single();
+          setProfile(created||newProfile);
+        }
+      });
   },[session]);
 
   if(session===undefined) return(
@@ -587,18 +609,7 @@ function Dash({wLogs,todayWaterMl,waterGoal,todayDiet,phys,setTab,profile,partne
         {hw?<div style={{color:"var(--muted)",marginTop:4}}>{hw.icon||"🏋️"} {hw.focus}</div>:<div style={{color:"var(--muted)",marginTop:4}}>💤 Dia de descanso — recuperação ativa</div>}
         {partner&&<div style={{marginTop:5,fontSize:13,color:"var(--purple)"}}>🤝 Parceiro: <strong>{partner.name}</strong></div>}
       </div>
-      {!profile.workout&&(
-        <Card className="an1" style={{marginBottom:14,borderLeft:"3px solid var(--purple)",cursor:"pointer"}} onClick={()=>setTab("perfil")}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{fontSize:28}}>🤖</div>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:700,color:"var(--purple)",fontSize:15}}>Nenhum treino configurado</div>
-              <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>Toque aqui para preencher seu briefing e gerar seu plano personalizado com IA</div>
-            </div>
-            <div style={{color:"var(--purple)",fontSize:20}}>→</div>
-          </div>
-        </Card>
-      )}
+
       <div className="an1" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10,marginBottom:14}}>
         {[
           {l:"Peso",v:lat?.weight||"—",u:"kg",c:"var(--red)"},
